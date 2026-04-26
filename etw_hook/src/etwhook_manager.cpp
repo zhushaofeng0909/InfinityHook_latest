@@ -9,6 +9,22 @@ EtwHookManager* EtwHookManager::__instance;
 
 void(* EtwHookManager::__orghalcollectpmccounters)(void*, unsigned long long);
 
+namespace {
+
+// magic2 is stable across Windows versions; magic1 changes between builds
+constexpr ULONG kSyscallEtwMagic1Values[] = { 0x501802ul, 0x601802ul };
+constexpr USHORT kSyscallEtwMagic2 = 0xf33u;
+
+bool IsSyscallEtwMagic1(ULONG value)
+{
+	for (auto v : kSyscallEtwMagic1Values) {
+		if (value == v) return true;
+	}
+	return false;
+}
+
+}
+
 EtwHookManager* EtwHookManager::get_instance()
 {
 	if (!__instance) __instance = new EtwHookManager;
@@ -283,8 +299,6 @@ void EtwHookManager::stack_trace_to_syscall()
 	auto stack_max=(PVOID*)__readgsqword(0x1A8);
 
 	auto cur_stack = (PVOID*)_AddressOfReturnAddress();
-	constexpr auto magic1 = 0x501802ul;
-	constexpr auto magic2 = 0xf33ul;
 
 	do {
 
@@ -318,13 +332,13 @@ void EtwHookManager::stack_trace_to_syscall()
 
 			auto stack_as_ushort = reinterpret_cast<PUSHORT>(cur_stack);
 
-			if(*stack_as_ushort != magic2) continue;
+			if(*stack_as_ushort != kSyscallEtwMagic2) continue;
 
 			cur_stack++;
 
 			auto stack_as_ulong = reinterpret_cast<PULONG>(cur_stack);
 
-			if(*stack_as_ulong != magic1) continue;
+			if(!IsSyscallEtwMagic1(*stack_as_ulong)) continue;
 
 			/*开始遍历*/
 			for (; cur_stack < stack_max; cur_stack++) {
